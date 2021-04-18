@@ -1,10 +1,7 @@
-const got = require('got');
-const fs = require('fs');
-const validator = require('validator');
-const urlStatusCode = require('url-status-code')
+const request = require('request');
 const cheerio = require('cheerio');
-const { LinkModel } = require('../models/LinkModel');
-const { SaveResult } = require('asposewordscloud');
+const validator = require('validator');
+const {LinkModel}=require('../models/LinkModel')
 
 class IndexController{
     homeView(req,res){
@@ -15,8 +12,15 @@ class IndexController{
       let websiteLink=req.body.link;     
       let domainName=websiteLink.replace(/.+\/\/|www.|\..+/g, '');
       console.log("domain",domainName);
-      try{  
-        res.json(await linkExtractor(websiteLink, domainName))
+      try{
+       if(validator.isURL(websiteLink)){
+         let links=await linkExtractor(websiteLink, websiteLink)
+         console.log("linkss",links);  
+          res.json(JSON.stringify(links))
+       }else{
+         res.json({error:"not url"})
+       }   
+       
      
       }catch(err){
         console.log(err);
@@ -25,28 +29,29 @@ class IndexController{
     }
 }
 
-async function linkExtractor(url){
-  let linkSet=new Set();
+async function linkExtractor(url, domain){
+
   try {
-    // Fetching HTML
-    const response = await got(url);  
-    const html = response.body;
-    // Using cheerio to extract <a> tags
-    const $ = cheerio.load(html);
-    const linkObjects = $('a');
-    // Collect the "href" and "title" of each link and add them to an array
+    request(url,async function  (error, response, body) {
+      console.error('error:', error); // Print the error if one occurred
+      statusCode=response && response.statusCode;
+      let savedLink= await LinkModel.create({
+        link:url,
+        statusCode,
+        domain
+       })
+      console.log(savedLink);
+       // Print the response status code if a response was received
+      if(body){
+        let links=linkExtractorFromHTML(body, domain);  
+        console.log('linksssssssss',links);
+        links.forEach(link=>{
+          linkExtractor(link,domain)
+        })
+        return links;  
+      }     
 
-      linkObjects.each(async (index, element) => {
-      let link=$(element).attr('href');
-      console.log(index+":"+link);
-      if(validator.isURL(link, { allow_protocol_relative_urls: true })){
-        linkSet.add(link)
-        linkExtractor(link)  
-      }    
-     });   
-     console.log("linkSet",linkSet);
-     return linkSet
-
+    }); 
   
     // do something else here with these links, such as writing to a file or saving them to your database
   } catch (err) {
@@ -55,14 +60,39 @@ async function linkExtractor(url){
   }
 }
 
-async function linkStatusCodeChecker(url){
-    try {
-      const status = await urlStatusCode(url)
-     console.log("status",status);
-      return status;
-    } catch (err) {
-      console.log(err);
-      return err.message
-    } 
+function linkExtractorFromHTML(body, domain){
+  //
+   let linksSet=new Set();
+  // Using cheerio to extract <a> tags
+  const $ = cheerio.load(body);
+
+  const linkObjects = $('a');
+  // this is a mass object, not an array
+
+  // Collect the "href" and "title" of each link and add them to an array
+
+  linkObjects.each((index, element) => {
+     let link=$(element).attr('href'); // get the href attribute 
+     if(link){
+     if(validator.isURL(link)){
+      linksSet.add(link)
+    }else{
+      if(link){
+        let changeLink=domain+link.slice(link.indexOf('/')+1);
+        console.log("changeLink",changeLink);
+        if(validator.isURL(changeLink)){
+          linksSet.add(changeLink)
+        }else{
+          console.log("brokenlink",changeLink);
+        }
+      }
+     }
+    }
+  });
+  console.log(`linksSet`,linksSet.size);
+   return [...linksSet]
 }
+
+
+
 module.exports=new IndexController();

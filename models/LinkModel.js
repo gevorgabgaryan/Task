@@ -3,7 +3,8 @@ const {model, Schema}=require('mongoose');
 const LinkSchema=new Schema({
      
             link:{
-                type:String,                     
+                type:String,
+                unique:true                   
             },
             statusCode:{
                 type:String,                      
